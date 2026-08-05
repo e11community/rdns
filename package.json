@@ -1,23 +1,33 @@
 {
-  "name": "rdns-admin",
+  "name": "rdns",
   "version": "0.1.0",
   "description": "Reverse DNS lookup tool: given an IP, find what Cloudflare DNS / GCP resource it maps to",
   "type": "module",
+  "main": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js"
+  },
   "bin": {
     "rdns": "./dist/cli.js"
+  },
+  "engines": {
+    "node": ">=24"
   },
   "scripts": {
     "build": "tsc",
     "start": "node dist/cli.js",
-    "dev": "tsx src/cli.ts"
+    "dev": "tsx src/cli.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "cloudflare": "^4.2.0",
     "@google-cloud/compute": "^4.9.0"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
+    "@types/node": "^24.0.0",
     "tsx": "^4.19.0",
-    "typescript": "^5.5.0"
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
   }
 }

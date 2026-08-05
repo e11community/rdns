@@ -1,4 +1,4 @@
-# rdns-admin
+# rdns
 
 Reverse DNS admin tool. Given an IPv4 (or IPv6) address — typically pasted out of a network vulnerability scanner alert — figure out **what it actually points to** in your environment.
 
@@ -16,7 +16,7 @@ npm run build
 npm link    # optional: puts `rdns` on PATH
 ```
 
-Requires Node.js 20+.
+Requires Node.js 24+ (`nvm use` picks it up from `.nvmrc`).
 
 ## Auth
 
@@ -79,7 +79,27 @@ Multiple hits for the same IP are common and expected — e.g. an unproxied Clou
 
 ## Cache
 
-Stored at `~/.cache/rdns-admin/index.json`. Default TTL is 15 minutes. Override with `--ttl <seconds>` or bypass entirely with `--refresh`.
+Stored at `~/.cache/rdns/index.json`. Default TTL is 15 minutes. Override with `--ttl <seconds>` or bypass entirely with `--refresh`.
+
+## Library use
+
+The scanners are also exported as a library (`src/index.ts` → `dist/index.js`):
+
+```ts
+import { scanCloudflare, scanGcp, type IpIndex } from "rdns";
+
+const index: IpIndex = new Map();
+await scanCloudflare(index);
+await scanGcp(index, { projectId: "my-project" });
+```
+
+## Development
+
+```bash
+npm install
+npm test        # vitest — Cloudflare/GCP SDKs are mocked; no credentials needed
+npm run build   # tsc → dist/
+```
 
 ## Known gaps
 

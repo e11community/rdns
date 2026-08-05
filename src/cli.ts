@@ -13,7 +13,7 @@ import type { IpIndex, IpRecord } from "./types.js";
 // Cache
 // ---------------------------------------------------------------------------
 
-const CACHE_DIR = join(homedir(), ".cache", "rdns-admin");
+const CACHE_DIR = join(homedir(), ".cache", "rdns");
 const CACHE_FILE = join(CACHE_DIR, "index.json");
 const DEFAULT_TTL_MS = 15 * 60 * 1000; // 15 min — tuned for "scanner alert -> investigate" workflow
 
