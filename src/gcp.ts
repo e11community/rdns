@@ -7,6 +7,11 @@ import {
 } from "@google-cloud/compute";
 import { addRecord, type IpIndex } from "./types.js";
 
+// gax forces autoPaginate off in *Async paging methods and emits
+// AutopaginateTrueWarning if the default (true) reaches them — pass it
+// explicitly to keep the output clean. Iteration still fetches every page.
+const PAGING_OPTIONS = { autoPaginate: false } as const;
+
 export interface GcpScanOptions {
   projectId: string;
 }
@@ -54,72 +59,79 @@ async function scanInstances(
   counts: GcpScanCounts
 ): Promise<void> {
   const client = new InstancesClient();
-  // aggregatedListAsync yields [zoneKey, { instances?: Instance[], warning?: ... }]
-  for await (const [zoneKey, scoped] of client.aggregatedListAsync({ project })) {
-    const instances = scoped?.instances ?? [];
-    if (instances.length === 0) continue;
+  try {
+    // aggregatedListAsync yields [zoneKey, { instances?: Instance[], warning?: ... }]
+    for await (const [zoneKey, scoped] of client.aggregatedListAsync(
+      { project },
+      PAGING_OPTIONS
+    )) {
+      const instances = scoped?.instances ?? [];
+      if (instances.length === 0) continue;
 
-    // zoneKey looks like "zones/us-central1-a"
-    const zone = zoneKey.replace(/^zones\//, "");
+      // zoneKey looks like "zones/us-central1-a"
+      const zone = zoneKey.replace(/^zones\//, "");
 
-    for (const inst of instances) {
-      counts.vms++;
-      const name = inst.name ?? "(unnamed)";
+      for (const inst of instances) {
+        counts.vms++;
+        const name = inst.name ?? "(unnamed)";
 
-      for (const nic of inst.networkInterfaces ?? []) {
-        // Internal IPv4
-        if (nic.networkIP) {
-          addRecord(index, {
-            ip: nic.networkIP,
-            source: "gcp-vm-internal",
-            name,
-            detail: `project=${project} zone=${zone} nic=${nic.name ?? "?"} status=${inst.status ?? "?"}`,
-            raw: inst,
-          });
-          counts.vmIps++;
-        }
-
-        // Internal IPv6 (if dual-stack)
-        if (nic.ipv6Address) {
-          addRecord(index, {
-            ip: nic.ipv6Address,
-            source: "gcp-vm-internal",
-            name,
-            detail: `project=${project} zone=${zone} nic=${nic.name ?? "?"} ipv6 status=${inst.status ?? "?"}`,
-            raw: inst,
-          });
-          counts.vmIps++;
-        }
-
-        // External IPv4 access configs
-        for (const ac of nic.accessConfigs ?? []) {
-          if (ac.natIP) {
+        for (const nic of inst.networkInterfaces ?? []) {
+          // Internal IPv4
+          if (nic.networkIP) {
             addRecord(index, {
-              ip: ac.natIP,
-              source: "gcp-vm-external",
+              ip: nic.networkIP,
+              source: "gcp-vm-internal",
               name,
               detail: `project=${project} zone=${zone} nic=${nic.name ?? "?"} status=${inst.status ?? "?"}`,
               raw: inst,
             });
             counts.vmIps++;
           }
-        }
 
-        // External IPv6 access configs
-        for (const ac of nic.ipv6AccessConfigs ?? []) {
-          if (ac.externalIpv6) {
+          // Internal IPv6 (if dual-stack)
+          if (nic.ipv6Address) {
             addRecord(index, {
-              ip: ac.externalIpv6,
-              source: "gcp-vm-external",
+              ip: nic.ipv6Address,
+              source: "gcp-vm-internal",
               name,
               detail: `project=${project} zone=${zone} nic=${nic.name ?? "?"} ipv6 status=${inst.status ?? "?"}`,
               raw: inst,
             });
             counts.vmIps++;
           }
+
+          // External IPv4 access configs
+          for (const ac of nic.accessConfigs ?? []) {
+            if (ac.natIP) {
+              addRecord(index, {
+                ip: ac.natIP,
+                source: "gcp-vm-external",
+                name,
+                detail: `project=${project} zone=${zone} nic=${nic.name ?? "?"} status=${inst.status ?? "?"}`,
+                raw: inst,
+              });
+              counts.vmIps++;
+            }
+          }
+
+          // External IPv6 access configs
+          for (const ac of nic.ipv6AccessConfigs ?? []) {
+            if (ac.externalIpv6) {
+              addRecord(index, {
+                ip: ac.externalIpv6,
+                source: "gcp-vm-external",
+                name,
+                detail: `project=${project} zone=${zone} nic=${nic.name ?? "?"} ipv6 status=${inst.status ?? "?"}`,
+                raw: inst,
+              });
+              counts.vmIps++;
+            }
+          }
         }
       }
     }
+  } finally {
+    await client.close();
   }
 }
 
@@ -131,22 +143,29 @@ async function scanRegionalAddresses(
   counts: GcpScanCounts
 ): Promise<void> {
   const client = new AddressesClient();
-  for await (const [regionKey, scoped] of client.aggregatedListAsync({ project })) {
-    const addresses = scoped?.addresses ?? [];
-    if (addresses.length === 0) continue;
-    const region = regionKey.replace(/^regions\//, "");
+  try {
+    for await (const [regionKey, scoped] of client.aggregatedListAsync(
+      { project },
+      PAGING_OPTIONS
+    )) {
+      const addresses = scoped?.addresses ?? [];
+      if (addresses.length === 0) continue;
+      const region = regionKey.replace(/^regions\//, "");
 
-    for (const addr of addresses) {
-      if (!addr.address) continue;
-      addRecord(index, {
-        ip: addr.address,
-        source: "gcp-address",
-        name: addr.name ?? "(unnamed)",
-        detail: `project=${project} region=${region} purpose=${addr.purpose ?? "?"} status=${addr.status ?? "?"} users=${(addr.users ?? []).length}`,
-        raw: addr,
-      });
-      counts.addresses++;
+      for (const addr of addresses) {
+        if (!addr.address) continue;
+        addRecord(index, {
+          ip: addr.address,
+          source: "gcp-address",
+          name: addr.name ?? "(unnamed)",
+          detail: `project=${project} region=${region} purpose=${addr.purpose ?? "?"} status=${addr.status ?? "?"} users=${(addr.users ?? []).length}`,
+          raw: addr,
+        });
+        counts.addresses++;
+      }
     }
+  } finally {
+    await client.close();
   }
 }
 
@@ -156,16 +175,20 @@ async function scanGlobalAddresses(
   counts: GcpScanCounts
 ): Promise<void> {
   const client = new GlobalAddressesClient();
-  for await (const addr of client.listAsync({ project })) {
-    if (!addr.address) continue;
-    addRecord(index, {
-      ip: addr.address,
-      source: "gcp-address",
-      name: addr.name ?? "(unnamed)",
-      detail: `project=${project} scope=global purpose=${addr.purpose ?? "?"} status=${addr.status ?? "?"} users=${(addr.users ?? []).length}`,
-      raw: addr,
-    });
-    counts.addresses++;
+  try {
+    for await (const addr of client.listAsync({ project }, PAGING_OPTIONS)) {
+      if (!addr.address) continue;
+      addRecord(index, {
+        ip: addr.address,
+        source: "gcp-address",
+        name: addr.name ?? "(unnamed)",
+        detail: `project=${project} scope=global purpose=${addr.purpose ?? "?"} status=${addr.status ?? "?"} users=${(addr.users ?? []).length}`,
+        raw: addr,
+      });
+      counts.addresses++;
+    }
+  } finally {
+    await client.close();
   }
 }
 
@@ -177,22 +200,29 @@ async function scanRegionalForwardingRules(
   counts: GcpScanCounts
 ): Promise<void> {
   const client = new ForwardingRulesClient();
-  for await (const [regionKey, scoped] of client.aggregatedListAsync({ project })) {
-    const rules = scoped?.forwardingRules ?? [];
-    if (rules.length === 0) continue;
-    const region = regionKey.replace(/^regions\//, "");
+  try {
+    for await (const [regionKey, scoped] of client.aggregatedListAsync(
+      { project },
+      PAGING_OPTIONS
+    )) {
+      const rules = scoped?.forwardingRules ?? [];
+      if (rules.length === 0) continue;
+      const region = regionKey.replace(/^regions\//, "");
 
-    for (const rule of rules) {
-      if (!rule.IPAddress) continue;
-      addRecord(index, {
-        ip: rule.IPAddress,
-        source: "gcp-forwarding-rule",
-        name: rule.name ?? "(unnamed)",
-        detail: `project=${project} region=${region} scheme=${rule.loadBalancingScheme ?? "?"} ports=${rule.portRange ?? rule.ports?.join(",") ?? "?"} target=${shortTarget(rule.target ?? rule.backendService)}`,
-        raw: rule,
-      });
-      counts.forwardingRules++;
+      for (const rule of rules) {
+        if (!rule.IPAddress) continue;
+        addRecord(index, {
+          ip: rule.IPAddress,
+          source: "gcp-forwarding-rule",
+          name: rule.name ?? "(unnamed)",
+          detail: `project=${project} region=${region} scheme=${rule.loadBalancingScheme ?? "?"} ports=${rule.portRange ?? rule.ports?.join(",") ?? "?"} target=${shortTarget(rule.target ?? rule.backendService)}`,
+          raw: rule,
+        });
+        counts.forwardingRules++;
+      }
     }
+  } finally {
+    await client.close();
   }
 }
 
@@ -202,16 +232,20 @@ async function scanGlobalForwardingRules(
   counts: GcpScanCounts
 ): Promise<void> {
   const client = new GlobalForwardingRulesClient();
-  for await (const rule of client.listAsync({ project })) {
-    if (!rule.IPAddress) continue;
-    addRecord(index, {
-      ip: rule.IPAddress,
-      source: "gcp-forwarding-rule",
-      name: rule.name ?? "(unnamed)",
-      detail: `project=${project} scope=global scheme=${rule.loadBalancingScheme ?? "?"} ports=${rule.portRange ?? rule.ports?.join(",") ?? "?"} target=${shortTarget(rule.target ?? rule.backendService)}`,
-      raw: rule,
-    });
-    counts.forwardingRules++;
+  try {
+    for await (const rule of client.listAsync({ project }, PAGING_OPTIONS)) {
+      if (!rule.IPAddress) continue;
+      addRecord(index, {
+        ip: rule.IPAddress,
+        source: "gcp-forwarding-rule",
+        name: rule.name ?? "(unnamed)",
+        detail: `project=${project} scope=global scheme=${rule.loadBalancingScheme ?? "?"} ports=${rule.portRange ?? rule.ports?.join(",") ?? "?"} target=${shortTarget(rule.target ?? rule.backendService)}`,
+        raw: rule,
+      });
+      counts.forwardingRules++;
+    }
+  } finally {
+    await client.close();
   }
 }
 

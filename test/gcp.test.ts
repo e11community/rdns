@@ -10,35 +10,47 @@ const fake = vi.hoisted(() => ({
   globalAddresses: [] as unknown[],
   regionalRuleAggregates: [] as Array<[string, { forwardingRules?: unknown[] }]>,
   globalRules: [] as unknown[],
+  pagingOptions: [] as unknown[],
+  closedClients: 0,
 }));
 
 vi.mock("@google-cloud/compute", () => {
   async function* iterate<T>(items: T[]): AsyncGenerator<T> {
     yield* items;
   }
+  class FakeClient {
+    async close(): Promise<void> {
+      fake.closedClients++;
+    }
+  }
   return {
-    InstancesClient: class {
-      aggregatedListAsync() {
+    InstancesClient: class extends FakeClient {
+      aggregatedListAsync(_req: unknown, options?: unknown) {
+        fake.pagingOptions.push(options);
         return iterate(fake.instanceAggregates);
       }
     },
-    AddressesClient: class {
-      aggregatedListAsync() {
+    AddressesClient: class extends FakeClient {
+      aggregatedListAsync(_req: unknown, options?: unknown) {
+        fake.pagingOptions.push(options);
         return iterate(fake.regionalAddressAggregates);
       }
     },
-    GlobalAddressesClient: class {
-      listAsync() {
+    GlobalAddressesClient: class extends FakeClient {
+      listAsync(_req: unknown, options?: unknown) {
+        fake.pagingOptions.push(options);
         return iterate(fake.globalAddresses);
       }
     },
-    ForwardingRulesClient: class {
-      aggregatedListAsync() {
+    ForwardingRulesClient: class extends FakeClient {
+      aggregatedListAsync(_req: unknown, options?: unknown) {
+        fake.pagingOptions.push(options);
         return iterate(fake.regionalRuleAggregates);
       }
     },
-    GlobalForwardingRulesClient: class {
-      listAsync() {
+    GlobalForwardingRulesClient: class extends FakeClient {
+      listAsync(_req: unknown, options?: unknown) {
+        fake.pagingOptions.push(options);
         return iterate(fake.globalRules);
       }
     },
@@ -51,6 +63,8 @@ beforeEach(() => {
   fake.globalAddresses = [];
   fake.regionalRuleAggregates = [];
   fake.globalRules = [];
+  fake.pagingOptions = [];
+  fake.closedClients = 0;
 });
 
 const PROJECT = "fake-project";
@@ -61,6 +75,16 @@ describe("scanGcp", () => {
     const counts = await scanGcp(index, { projectId: PROJECT });
     expect(counts).toEqual({ vms: 0, vmIps: 0, addresses: 0, forwardingRules: 0 });
     expect(index.size).toBe(0);
+  });
+
+  it("disables autoPaginate on every paging call and closes every client", async () => {
+    await scanGcp(new Map(), { projectId: PROJECT });
+    // 5 scan functions → 5 paging calls, 5 clients closed
+    expect(fake.pagingOptions).toHaveLength(5);
+    for (const options of fake.pagingOptions) {
+      expect(options).toEqual({ autoPaginate: false });
+    }
+    expect(fake.closedClients).toBe(5);
   });
 
   it("indexes VM internal/external IPv4 and IPv6 addresses", async () => {
