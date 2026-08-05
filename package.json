@@ -21,8 +21,8 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "cloudflare": "^4.2.0",
-    "@google-cloud/compute": "^4.9.0"
+    "@google-cloud/compute": "^7.0.0",
+    "cloudflare": "^4.2.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
