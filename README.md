@@ -40,6 +40,8 @@ gcloud auth application-default login
 
 The `roles/compute.viewer` predefined role covers all of these.
 
+The Compute clients request a single OAuth scope, `https://www.googleapis.com/auth/compute.readonly` — the narrowest one that covers every list call `rdns` makes. Service accounts, workload identity, and VM metadata credentials are therefore held to read-only Compute access even if the underlying identity is granted more. (User credentials from `gcloud auth application-default login` carry their scopes in the refresh token, so that path is bounded by the login itself.)
+
 > **Note:** GCP scans require an explicit project list — there is no "all projects" mode (Compute Engine APIs are project-scoped). Pass `-p <project>` repeatedly, or set `GCP_PROJECTS=proj-a,proj-b`.
 
 ## Usage

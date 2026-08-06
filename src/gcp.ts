@@ -12,6 +12,20 @@ import { addRecord, type IpIndex } from "./types.js";
 // explicitly to keep the output clean. Iteration still fetches every page.
 const PAGING_OPTIONS = { autoPaginate: false } as const;
 
+// Every Compute call in this file is a list; nothing here mutates. The
+// generated clients otherwise request compute (read-write) + cloud-platform
+// (every Google Cloud API), so asking for the read-only scope is the narrowest
+// grant that still satisfies all five scanners.
+//
+// This binds credential types whose scopes are chosen at token-request time:
+// service account keys, workload identity, and GCE/Cloud Run metadata tokens.
+// User credentials from `gcloud auth application-default login` carry their
+// scopes inside the refresh token, so local ADC is bounded by that login
+// instead — this is a no-op there, not a downgrade.
+const CLIENT_OPTIONS = {
+  scopes: ["https://www.googleapis.com/auth/compute.readonly"],
+};
+
 export interface GcpScanOptions {
   projectId: string;
 }
@@ -58,7 +72,7 @@ async function scanInstances(
   index: IpIndex,
   counts: GcpScanCounts
 ): Promise<void> {
-  const client = new InstancesClient();
+  const client = new InstancesClient(CLIENT_OPTIONS);
   try {
     // aggregatedListAsync yields [zoneKey, { instances?: Instance[], warning?: ... }]
     for await (const [zoneKey, scoped] of client.aggregatedListAsync(
@@ -142,7 +156,7 @@ async function scanRegionalAddresses(
   index: IpIndex,
   counts: GcpScanCounts
 ): Promise<void> {
-  const client = new AddressesClient();
+  const client = new AddressesClient(CLIENT_OPTIONS);
   try {
     for await (const [regionKey, scoped] of client.aggregatedListAsync(
       { project },
@@ -174,7 +188,7 @@ async function scanGlobalAddresses(
   index: IpIndex,
   counts: GcpScanCounts
 ): Promise<void> {
-  const client = new GlobalAddressesClient();
+  const client = new GlobalAddressesClient(CLIENT_OPTIONS);
   try {
     for await (const addr of client.listAsync({ project }, PAGING_OPTIONS)) {
       if (!addr.address) continue;
@@ -199,7 +213,7 @@ async function scanRegionalForwardingRules(
   index: IpIndex,
   counts: GcpScanCounts
 ): Promise<void> {
-  const client = new ForwardingRulesClient();
+  const client = new ForwardingRulesClient(CLIENT_OPTIONS);
   try {
     for await (const [regionKey, scoped] of client.aggregatedListAsync(
       { project },
@@ -231,7 +245,7 @@ async function scanGlobalForwardingRules(
   index: IpIndex,
   counts: GcpScanCounts
 ): Promise<void> {
-  const client = new GlobalForwardingRulesClient();
+  const client = new GlobalForwardingRulesClient(CLIENT_OPTIONS);
   try {
     for await (const rule of client.listAsync({ project }, PAGING_OPTIONS)) {
       if (!rule.IPAddress) continue;

@@ -195,6 +195,7 @@ ENV
   CLOUDFLARE_API_TOKEN          Required unless --no-cloudflare. Needs Zone:Read + DNS:Read.
   GCP_PROJECTS                  Comma-separated default project list.
   Application Default Credentials must be set for GCP (gcloud auth application-default login).
+  GCP clients request only https://www.googleapis.com/auth/compute.readonly.
 
 CACHE
   ${CACHE_FILE}

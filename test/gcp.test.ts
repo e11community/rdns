@@ -11,6 +11,7 @@ const fake = vi.hoisted(() => ({
   regionalRuleAggregates: [] as Array<[string, { forwardingRules?: unknown[] }]>,
   globalRules: [] as unknown[],
   pagingOptions: [] as unknown[],
+  ctorOptions: [] as unknown[],
   closedClients: 0,
 }));
 
@@ -19,6 +20,10 @@ vi.mock("@google-cloud/compute", () => {
     yield* items;
   }
   class FakeClient {
+    // Subclasses declare no constructor, so ClientOptions land here.
+    constructor(options?: unknown) {
+      fake.ctorOptions.push(options);
+    }
     async close(): Promise<void> {
       fake.closedClients++;
     }
@@ -64,6 +69,7 @@ beforeEach(() => {
   fake.regionalRuleAggregates = [];
   fake.globalRules = [];
   fake.pagingOptions = [];
+  fake.ctorOptions = [];
   fake.closedClients = 0;
 });
 
@@ -85,6 +91,19 @@ describe("scanGcp", () => {
       expect(options).toEqual({ autoPaginate: false });
     }
     expect(fake.closedClients).toBe(5);
+  });
+
+  it("requests only the read-only Compute scope on every client", async () => {
+    await scanGcp(new Map(), { projectId: PROJECT });
+
+    // All 5 clients, so a new scanner can't silently inherit the SDK default
+    // of compute (read-write) + cloud-platform.
+    expect(fake.ctorOptions).toHaveLength(5);
+    for (const options of fake.ctorOptions) {
+      expect(options).toEqual({
+        scopes: ["https://www.googleapis.com/auth/compute.readonly"],
+      });
+    }
   });
 
   it("indexes VM internal/external IPv4 and IPv6 addresses", async () => {
