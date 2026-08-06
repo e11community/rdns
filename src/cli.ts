@@ -58,10 +58,16 @@ async function buildIndex(opts: BuildOptions): Promise<IpIndex> {
   const tasks: Array<Promise<unknown>> = [];
 
   if (!opts.skipCloudflare) {
+    console.error("[cloudflare] scanning zones...");
     tasks.push(
-      scanCloudflare(index)
+      scanCloudflare(index, {
+        onProgress: (p) =>
+          console.error(
+            `[cloudflare] scanned ${p.zones} zones, ${p.records} A/AAAA records so far`
+          ),
+      })
         .then((r) =>
-          console.error(`[cloudflare] ${r.zones} zones, ${r.records} A/AAAA records`)
+          console.error(`[cloudflare] done: ${r.zones} zones, ${r.records} A/AAAA records`)
         )
         .catch((e: Error) => console.error(`[cloudflare] FAILED: ${e.message}`))
     );

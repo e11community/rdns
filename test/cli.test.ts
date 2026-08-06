@@ -1,8 +1,8 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { IpRecord } from "../src/types.js";
 
 const ROOT = join(import.meta.dirname, "..");
@@ -21,6 +21,14 @@ function runCli(args: string[]): string {
   });
 }
 
+/** Same isolation as runCli, but keeps stderr (where progress is reported). */
+function runCliStderr(args: string[]): string {
+  return spawnSync(TSX, [CLI, ...args], {
+    encoding: "utf8",
+    env: { PATH: process.env.PATH ?? "", HOME: fakeHome },
+  }).stderr;
+}
+
 function seedCache(entries: Array<[string, IpRecord[]]>): void {
   const cacheDir = join(fakeHome, ".cache", "rdns");
   mkdirSync(cacheDir, { recursive: true });
@@ -32,6 +40,10 @@ function seedCache(entries: Array<[string, IpRecord[]]>): void {
 
 beforeAll(() => {
   fakeHome = mkdtempSync(join(tmpdir(), "rdns-test-"));
+});
+
+// Re-seeded per test: the --refresh cases rebuild and overwrite the cache file.
+beforeEach(() => {
   seedCache([
     [
       "203.0.113.7",
@@ -101,5 +113,13 @@ describe("rdns CLI", () => {
 
   it("exits non-zero when lookup is given no IPs", () => {
     expect(() => runCli(["lookup"])).toThrow();
+  });
+
+  it("announces the start of the Cloudflare zone scan", () => {
+    // The child env has no CLOUDFLARE_API_TOKEN, so the scan announces itself
+    // and then fails the token check before making any network call.
+    const stderr = runCliStderr(["scan", "--no-gcp"]);
+    expect(stderr).toContain("[cloudflare] scanning zones...");
+    expect(stderr).toContain("CLOUDFLARE_API_TOKEN env var is not set");
   });
 });

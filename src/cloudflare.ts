@@ -5,15 +5,26 @@ import { addRecord, type IpIndex } from "./types.js";
 // (CNAMEs are followed implicitly when their target itself has an A/AAAA in the index.)
 const IP_RECORD_TYPES = new Set(["A", "AAAA"]);
 
+// Each zone costs a separate record-listing round trip, so a large account
+// spends minutes here with nothing to show. Report every this many zones.
+const PROGRESS_INTERVAL = 10;
+
+export interface CloudflareScanCounts {
+  zones: number;
+  records: number;
+}
+
 export interface CloudflareScanOptions {
   /** Optional: restrict to a single zone for faster runs */
   zoneFilter?: string;
+  /** Called with running totals after every {@link PROGRESS_INTERVAL} zones. */
+  onProgress?: (counts: CloudflareScanCounts) => void;
 }
 
 export async function scanCloudflare(
   index: IpIndex,
   opts: CloudflareScanOptions = {}
-): Promise<{ zones: number; records: number }> {
+): Promise<CloudflareScanCounts> {
   const apiToken = process.env.CLOUDFLARE_API_TOKEN;
   if (!apiToken) {
     throw new Error("CLOUDFLARE_API_TOKEN env var is not set");
@@ -45,6 +56,10 @@ export async function scanCloudflare(
         raw: record,
       });
       recordCount++;
+    }
+
+    if (zoneCount % PROGRESS_INTERVAL === 0) {
+      opts.onProgress?.({ zones: zoneCount, records: recordCount });
     }
   }
 
